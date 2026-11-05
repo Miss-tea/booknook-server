@@ -181,6 +181,24 @@ app.patch("/books/:id", async (req, res) => {
     res.status(500).send({ message: "Could not update the book. Please try again." });
   }
 });
+// DELETE  /books/:id ---delete a book
+app.delete("/books/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).send({ message: "This book id is not valid." });
+    }
+
+    const result = await booksCollection.deleteOne({ _id: new ObjectId(id) });
+    if (result.deletedCount === 0) {
+      return res.status(404).send({ message: "Book not found." });
+    }
+
+    res.send({ message: "Book deleted successfully." });
+  } catch (error) {
+    res.status(500).send({ message: "Could not delete the book. Please try again." });
+  }
+});
 //started
 connectDB()
   .then(() => {

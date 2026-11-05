@@ -1,0 +1,12 @@
+{
+  "name": "booknook-server",
+  "version": "1.0.0",
+  "description": "BookNook API - a small online library",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js"
+  },
+  "license": "ISC"
+}

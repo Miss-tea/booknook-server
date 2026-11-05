@@ -124,6 +124,63 @@ app.post("/books", async (req, res) => {
     res.status(500).send({ message: "Could not add the book. Please try again." });
   }
 });
+// PATCH books:id 
+app.patch("/books/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).send({ message: "This book id is not valid." });
+    }
+
+    const book = await booksCollection.findOne({ _id: new ObjectId(id) });
+    if (!book) {
+      return res.status(404).send({ message: "Book not found." });
+    }
+
+    const { title, author, category, image, description, totalCopies } = req.body;
+    const allowedCategories = ["Fiction", "Science", "History", "Kids", "Others"];
+
+    const updates = {};
+    if (title) updates.title = title.trim();
+    if (author) updates.author = author.trim();
+    if (image) updates.image = image;
+    if (description) updates.description = description.trim();
+    if (category) {
+      if (!allowedCategories.includes(category)) {
+        return res.status(400).send({ message: "Please choose a valid category." });
+      }
+      updates.category = category;
+    }
+//
+   let copiesChange = 0;
+    if (totalCopies !== undefined) {
+      const newTotal = Number(totalCopies);
+      if (!Number.isInteger(newTotal) || newTotal < 1) {
+        return res
+          .status(400)
+          .send({ message: "Total copies must be a whole number of 1 or more." });
+      }
+      copiesChange = newTotal - book.totalCopies;
+      if (book.availableCopies + copiesChange < 0) {
+        return res.status(400).send({
+          message: "You cannot lower the total below the number of copies already borrowed.",
+        });
+      }
+      updates.totalCopies = newTotal;
+    }
+
+    const updateDoc = { $set: updates };
+    if (copiesChange !== 0) {
+      updateDoc.$inc = { availableCopies: copiesChange };
+    }
+
+    await booksCollection.updateOne({ _id: new ObjectId(id) }, updateDoc);
+    const updatedBook = await booksCollection.findOne({ _id: new ObjectId(id) });
+    res.send(updatedBook);
+  } catch (error) {
+    res.status(500).send({ message: "Could not update the book. Please try again." });
+  }
+});
 //started
 connectDB()
   .then(() => {

@@ -10,7 +10,6 @@ import { MongoClient, ServerApiVersion, ObjectId } from "mongodb";
 const app = express();
 const port = process.env.PORT || 5000;
 
-// ---------- Middleware ----------
 app.use(
   cors({
     origin: [process.env.CLIENT_URL, "http://localhost:3000"].filter(Boolean),
@@ -19,7 +18,6 @@ app.use(
 );
 app.use(express.json());
 
-// ---------- MongoDB ----------
 const client = new MongoClient(process.env.MONGODB_URI, {
   serverApi: {
     version: ServerApiVersion.v1,
@@ -37,7 +35,6 @@ async function connectDB() {
   booksCollection = db.collection("books");
   borrowsCollection = db.collection("borrows");
 
-  // One active borrow per user per book, enforced by the database itself
   try {
     await borrowsCollection.createIndex(
       { userEmail: 1, bookId: 1 },
@@ -50,7 +47,6 @@ async function connectDB() {
   console.log("✅ MongoDB connected");
 }
 
-// ---------- JWT middleware ----------
 function verifyJWT(req, res, next) {
   const header = req.headers.authorization;
 
@@ -66,19 +62,15 @@ function verifyJWT(req, res, next) {
         .status(401)
         .send({ message: "Your session has expired. Please log in again." });
     }
-    req.user = decoded; // { name, email, sub }
+    req.user = decoded;
     next();
   });
 }
 
-// ---------- Test route ----------
 app.get("/", (req, res) => {
   res.send({ message: "BookNook server is running 📚" });
 });
 
-// ---------- BOOK ROUTES ----------
-
-// GET /books  -> all books (public)
 app.get("/books", async (req, res) => {
   try {
     const limit = parseInt(req.query.limit) || 0;
@@ -96,7 +88,6 @@ app.get("/books", async (req, res) => {
   }
 });
 
-// GET /books/:id -> one book (protected)
 app.get("/books/:id", verifyJWT, async (req, res) => {
   try {
     const { id } = req.params;
@@ -115,7 +106,6 @@ app.get("/books/:id", verifyJWT, async (req, res) => {
   }
 });
 
-// POST /books -> add a new book (protected)
 app.post("/books", verifyJWT, async (req, res) => {
   try {
     const { title, author, category, image, description, totalCopies } = req.body;
@@ -155,7 +145,6 @@ app.post("/books", verifyJWT, async (req, res) => {
   }
 });
 
-// PATCH /books/:id -> update a book (protected, owner only)
 app.patch("/books/:id", verifyJWT, async (req, res) => {
   try {
     const { id } = req.params;
@@ -218,7 +207,6 @@ app.patch("/books/:id", verifyJWT, async (req, res) => {
   }
 });
 
-// DELETE /books/:id -> delete a book (protected, owner only)
 app.delete("/books/:id", verifyJWT, async (req, res) => {
   try {
     const { id } = req.params;
@@ -243,9 +231,6 @@ app.delete("/books/:id", verifyJWT, async (req, res) => {
   }
 });
 
-// ---------- BORROW ROUTES ----------
-
-// POST /borrows -> borrow a book (protected)
 app.post("/borrows", verifyJWT, async (req, res) => {
   try {
     const { bookId } = req.body;
@@ -258,7 +243,6 @@ app.post("/borrows", verifyJWT, async (req, res) => {
       return res.status(404).send({ message: "Book not found." });
     }
 
-    // No double borrow
     const alreadyBorrowed = await borrowsCollection.findOne({
       bookId: book._id.toString(),
       userEmail: req.user.email,
@@ -269,7 +253,6 @@ app.post("/borrows", verifyJWT, async (req, res) => {
       });
     }
 
-    // Take one copy, but only if at least one is left (atomic)
     const taken = await booksCollection.findOneAndUpdate(
       { _id: book._id, availableCopies: { $gt: 0 } },
       { $inc: { availableCopies: -1 } }
@@ -314,7 +297,6 @@ app.post("/borrows", verifyJWT, async (req, res) => {
   }
 });
 
-// GET /borrows -> borrows of the logged in user (protected)
 app.get("/borrows", verifyJWT, async (req, res) => {
   try {
     const borrows = await borrowsCollection
@@ -328,7 +310,6 @@ app.get("/borrows", verifyJWT, async (req, res) => {
   }
 });
 
-// DELETE /borrows/:id -> return a book (protected, borrower only)
 app.delete("/borrows/:id", verifyJWT, async (req, res) => {
   try {
     const { id } = req.params;
@@ -364,7 +345,6 @@ app.delete("/borrows/:id", verifyJWT, async (req, res) => {
   }
 });
 
-// ---------- Start ----------
 connectDB()
   .then(() => {
     app.listen(port, () => console.log(`🚀 Server on port ${port}`));

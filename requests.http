@@ -1,0 +1,59 @@
+### 1. Add a book
+POST http://localhost:5000/books
+Content-Type: application/json
+
+{
+  "title": "The Little Prince",
+  "author": "Antoine de Saint-Exupery",
+  "category": "Fiction",
+  "image": "https://placehold.co/400x600",
+  "description": "A short story about a young prince who travels between planets.",
+  "totalCopies": 3,
+  "userName": "Test User",
+  "userEmail": "test@example.com"
+}
+
+### 2. Get all books
+GET http://localhost:5000/books
+
+### 3. Update (replace PASTE_ID with the _id from step 2)
+PATCH http://localhost:5000/books/6aec9d203c35a83189dc305e
+Content-Type: application/json
+
+{
+  "title": "The Little Prince (Updated)",
+  "totalCopies": 5
+}
+
+### 4. Delete (replace PASTE_ID)
+DELETE http://localhost:5000/books/6aec9bd93c35a83189dc305d
+
+### Book A
+POST http://localhost:5000/books
+Content-Type: application/json
+
+{
+  "title": "Journey to the Stars",
+  "author": "Ayesha Rahman",
+  "category": "Science",
+  "image": "https://placehold.co/400x600/png?text=Stars",
+  "description": "A simple guide to the planets and stars above us.",
+  "totalCopies": 2,
+  "userName": "Test User",
+  "userEmail": "test@example.com"
+}
+
+### Book B
+POST http://localhost:5000/books
+Content-Type: application/json
+
+{
+  "title": "Tales of Old Dhaka",
+  "author": "Karim Hossain",
+  "category": "History",
+  "image": "https://placehold.co/400x600/png?text=Dhaka",
+  "description": "Stories from the streets and markets of old Dhaka.",
+  "totalCopies": 4,
+  "userName": "Test User",
+  "userEmail": "test@example.com"
+}

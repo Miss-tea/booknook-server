@@ -136,7 +136,7 @@ app.post("/books", verifyJWT, async (req, res) => {
   }
 });
 // PATCH books:id 
-app.patch("/books/:id", async (req, res) => {
+app.patch("/books/:id", verifyJWT, async (req, res) => {
   try {
     const { id } = req.params;
     if (!ObjectId.isValid(id)) {
@@ -147,7 +147,11 @@ app.patch("/books/:id", async (req, res) => {
     if (!book) {
       return res.status(404).send({ message: "Book not found." });
     }
-
+    if (book.userEmail !== req.user.email) {
+      return res
+        .status(403)
+        .send({ message: "You can only edit your own books." });
+    }
     const { title, author, category, image, description, totalCopies } = req.body;
     const allowedCategories = ["Fiction", "Science", "History", "Kids", "Others"];
 

@@ -1,24 +1,25 @@
 import dns from "node:dns";
 dns.setServers(["8.8.8.8", "1.1.1.1"]);
+
 import express from "express";
 import cors from "cors";
 import "dotenv/config";
 import jwt from "jsonwebtoken";
-import { MongoClient, ServerApiVersion ,ObjectId } from "mongodb";
+import { MongoClient, ServerApiVersion, ObjectId } from "mongodb";
 
 const app = express();
 const port = process.env.PORT || 5000;
 
-// Middleware 
+// ---------- Middleware ----------
 app.use(
   cors({
-    origin: [process.env.CLIENT_URL, "http://localhost:3000"],
+    origin: [process.env.CLIENT_URL, "http://localhost:3000"].filter(Boolean),
     credentials: true,
   })
 );
 app.use(express.json());
 
-// MongoDB
+// ---------- MongoDB ----------
 const client = new MongoClient(process.env.MONGODB_URI, {
   serverApi: {
     version: ServerApiVersion.v1,
@@ -35,8 +36,20 @@ async function connectDB() {
   const db = client.db("booknook");
   booksCollection = db.collection("books");
   borrowsCollection = db.collection("borrows");
-  console.log(" MongoDB connected");
+
+  // One active borrow per user per book, enforced by the database itself
+  try {
+    await borrowsCollection.createIndex(
+      { userEmail: 1, bookId: 1 },
+      { unique: true }
+    );
+  } catch (err) {
+    console.warn("⚠️ Could not create borrow index:", err.message);
+  }
+
+  console.log("✅ MongoDB connected");
 }
+
 // ---------- JWT middleware ----------
 function verifyJWT(req, res, next) {
   const header = req.headers.authorization;
@@ -57,11 +70,15 @@ function verifyJWT(req, res, next) {
     next();
   });
 }
-// for test
+
+// ---------- Test route ----------
 app.get("/", (req, res) => {
-  res.send({ message: "BookNook server is running" });
+  res.send({ message: "BookNook server is running 📚" });
 });
-// book routes
+
+// ---------- BOOK ROUTES ----------
+
+// GET /books  -> all books (public)
 app.get("/books", async (req, res) => {
   try {
     const limit = parseInt(req.query.limit) || 0;
@@ -69,7 +86,7 @@ app.get("/books", async (req, res) => {
 
     const books = await booksCollection
       .find(query)
-      .sort({ createdAt: -1 }) // newest first
+      .sort({ createdAt: -1 })
       .limit(limit)
       .toArray();
 
@@ -79,7 +96,8 @@ app.get("/books", async (req, res) => {
   }
 });
 
-app.get("/books/:id", async (req, res) => {
+// GET /books/:id -> one book (protected)
+app.get("/books/:id", verifyJWT, async (req, res) => {
   try {
     const { id } = req.params;
     if (!ObjectId.isValid(id)) {
@@ -96,6 +114,7 @@ app.get("/books/:id", async (req, res) => {
     res.status(500).send({ message: "Could not load this book." });
   }
 });
+
 // POST /books -> add a new book (protected)
 app.post("/books", verifyJWT, async (req, res) => {
   try {
@@ -135,7 +154,8 @@ app.post("/books", verifyJWT, async (req, res) => {
     res.status(500).send({ message: "Could not add the book. Please try again." });
   }
 });
-// PATCH books:id 
+
+// PATCH /books/:id -> update a book (protected, owner only)
 app.patch("/books/:id", verifyJWT, async (req, res) => {
   try {
     const { id } = req.params;
@@ -152,6 +172,7 @@ app.patch("/books/:id", verifyJWT, async (req, res) => {
         .status(403)
         .send({ message: "You can only edit your own books." });
     }
+
     const { title, author, category, image, description, totalCopies } = req.body;
     const allowedCategories = ["Fiction", "Science", "History", "Kids", "Others"];
 
@@ -166,8 +187,8 @@ app.patch("/books/:id", verifyJWT, async (req, res) => {
       }
       updates.category = category;
     }
-//
-   let copiesChange = 0;
+
+    let copiesChange = 0;
     if (totalCopies !== undefined) {
       const newTotal = Number(totalCopies);
       if (!Number.isInteger(newTotal) || newTotal < 1) {
@@ -196,29 +217,158 @@ app.patch("/books/:id", verifyJWT, async (req, res) => {
     res.status(500).send({ message: "Could not update the book. Please try again." });
   }
 });
-// DELETE  /books/:id ---delete a book
-app.delete("/books/:id", async (req, res) => {
+
+// DELETE /books/:id -> delete a book (protected, owner only)
+app.delete("/books/:id", verifyJWT, async (req, res) => {
   try {
     const { id } = req.params;
     if (!ObjectId.isValid(id)) {
       return res.status(400).send({ message: "This book id is not valid." });
     }
 
-    const result = await booksCollection.deleteOne({ _id: new ObjectId(id) });
-    if (result.deletedCount === 0) {
+    const book = await booksCollection.findOne({ _id: new ObjectId(id) });
+    if (!book) {
       return res.status(404).send({ message: "Book not found." });
     }
+    if (book.userEmail !== req.user.email) {
+      return res
+        .status(403)
+        .send({ message: "You can only delete your own books." });
+    }
 
+    await booksCollection.deleteOne({ _id: new ObjectId(id) });
     res.send({ message: "Book deleted successfully." });
   } catch (error) {
     res.status(500).send({ message: "Could not delete the book. Please try again." });
   }
 });
-//started
+
+// ---------- BORROW ROUTES ----------
+
+// POST /borrows -> borrow a book (protected)
+app.post("/borrows", verifyJWT, async (req, res) => {
+  try {
+    const { bookId } = req.body;
+    if (!bookId || !ObjectId.isValid(bookId)) {
+      return res.status(400).send({ message: "This book id is not valid." });
+    }
+
+    const book = await booksCollection.findOne({ _id: new ObjectId(bookId) });
+    if (!book) {
+      return res.status(404).send({ message: "Book not found." });
+    }
+
+    // No double borrow
+    const alreadyBorrowed = await borrowsCollection.findOne({
+      bookId: book._id.toString(),
+      userEmail: req.user.email,
+    });
+    if (alreadyBorrowed) {
+      return res.status(409).send({
+        message: "You have already borrowed this book. Return it before borrowing again.",
+      });
+    }
+
+    // Take one copy, but only if at least one is left (atomic)
+    const taken = await booksCollection.findOneAndUpdate(
+      { _id: book._id, availableCopies: { $gt: 0 } },
+      { $inc: { availableCopies: -1 } }
+    );
+    if (!taken) {
+      return res
+        .status(400)
+        .send({ message: "Sorry, no copies of this book are available right now." });
+    }
+
+    const borrowDate = new Date();
+    const returnDate = new Date(borrowDate);
+    returnDate.setDate(returnDate.getDate() + 7);
+
+    const borrow = {
+      bookId: book._id.toString(),
+      bookTitle: book.title,
+      bookImage: book.image,
+      userName: req.user.name,
+      userEmail: req.user.email,
+      borrowDate,
+      returnDate,
+    };
+
+    try {
+      const result = await borrowsCollection.insertOne(borrow);
+      res.status(201).send({ ...borrow, _id: result.insertedId });
+    } catch (insertError) {
+      await booksCollection.updateOne(
+        { _id: book._id },
+        { $inc: { availableCopies: 1 } }
+      );
+      if (insertError.code === 11000) {
+        return res.status(409).send({
+          message: "You have already borrowed this book. Return it before borrowing again.",
+        });
+      }
+      throw insertError;
+    }
+  } catch (error) {
+    res.status(500).send({ message: "Could not borrow the book. Please try again." });
+  }
+});
+
+// GET /borrows -> borrows of the logged in user (protected)
+app.get("/borrows", verifyJWT, async (req, res) => {
+  try {
+    const borrows = await borrowsCollection
+      .find({ userEmail: req.user.email })
+      .sort({ borrowDate: -1 })
+      .toArray();
+
+    res.send(borrows);
+  } catch (error) {
+    res.status(500).send({ message: "Could not load your borrowed books." });
+  }
+});
+
+// DELETE /borrows/:id -> return a book (protected, borrower only)
+app.delete("/borrows/:id", verifyJWT, async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).send({ message: "This borrow id is not valid." });
+    }
+
+    const borrow = await borrowsCollection.findOne({ _id: new ObjectId(id) });
+    if (!borrow) {
+      return res.status(404).send({ message: "Borrow record not found." });
+    }
+    if (borrow.userEmail !== req.user.email) {
+      return res
+        .status(403)
+        .send({ message: "You can only return books that you borrowed." });
+    }
+
+    await borrowsCollection.deleteOne({ _id: new ObjectId(id) });
+
+    if (ObjectId.isValid(borrow.bookId)) {
+      await booksCollection.updateOne(
+        {
+          _id: new ObjectId(borrow.bookId),
+          $expr: { $lt: ["$availableCopies", "$totalCopies"] },
+        },
+        { $inc: { availableCopies: 1 } }
+      );
+    }
+
+    res.send({ message: "Book returned successfully." });
+  } catch (error) {
+    res.status(500).send({ message: "Could not return the book. Please try again." });
+  }
+});
+
+// ---------- Start ----------
 connectDB()
   .then(() => {
-    app.listen(port, () => console.log(`Server on port ${port}`));
+    app.listen(port, () => console.log(`🚀 Server on port ${port}`));
   })
   .catch((err) => {
-    console.error("MongoDB connection failed:", err.message);
+    console.error("❌ MongoDB connection failed:", err.message);
   });

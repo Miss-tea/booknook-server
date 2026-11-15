@@ -2,7 +2,7 @@
 
 Express and MongoDB API for BookNook, a small online library.
 
-**Live API:** 
+**Live API:** https://booknook-server-zhqd.onrender.com/
 **Client repo:** https://github.com/Miss-tea/booknook-client
 
 ## API Routes

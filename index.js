@@ -3,6 +3,7 @@ dns.setServers(["8.8.8.8", "1.1.1.1"]);
 import express from "express";
 import cors from "cors";
 import "dotenv/config";
+import jwt from "jsonwebtoken";
 import { MongoClient, ServerApiVersion ,ObjectId } from "mongodb";
 
 const app = express();
@@ -36,7 +37,26 @@ async function connectDB() {
   borrowsCollection = db.collection("borrows");
   console.log(" MongoDB connected");
 }
+// ---------- JWT middleware ----------
+function verifyJWT(req, res, next) {
+  const header = req.headers.authorization;
 
+  if (!header || !header.startsWith("Bearer ")) {
+    return res.status(401).send({ message: "Please log in to continue." });
+  }
+
+  const token = header.split(" ")[1];
+
+  jwt.verify(token, process.env.JWT_SECRET, { algorithms: ["HS256"] }, (err, decoded) => {
+    if (err) {
+      return res
+        .status(401)
+        .send({ message: "Your session has expired. Please log in again." });
+    }
+    req.user = decoded; // { name, email, sub }
+    next();
+  });
+}
 // for test
 app.get("/", (req, res) => {
   res.send({ message: "BookNook server is running" });
@@ -76,24 +96,15 @@ app.get("/books/:id", async (req, res) => {
     res.status(500).send({ message: "Could not load this book." });
   }
 });
-// add new book
-app.post("/books", async (req, res) => {
+// POST /books -> add a new book (protected)
+app.post("/books", verifyJWT, async (req, res) => {
   try {
-    const {
-      title,
-      author,
-      category,
-      image,
-      description,
-      totalCopies,
-      userName,
-      userEmail,
-    } = req.body;
+    const { title, author, category, image, description, totalCopies } = req.body;
 
     const allowedCategories = ["Fiction", "Science", "History", "Kids", "Others"];
     const copies = Number(totalCopies);
 
-    if (!title || !author || !image || !description || !userEmail) {
+    if (!title || !author || !image || !description) {
       return res.status(400).send({ message: "Please fill in all the fields." });
     }
     if (!allowedCategories.includes(category)) {
@@ -113,8 +124,8 @@ app.post("/books", async (req, res) => {
       description: description.trim(),
       totalCopies: copies,
       availableCopies: copies,
-      userName,
-      userEmail,
+      userName: req.user.name,
+      userEmail: req.user.email,
       createdAt: new Date(),
     };
 
